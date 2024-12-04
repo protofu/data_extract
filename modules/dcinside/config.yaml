@@ -1,0 +1,8 @@
+params:
+  site:
+    site: 디시인사이드
+  kwargs:
+    url: https://www.dcinside.com/
+    browser: Chrome
+    width: 1200
+    height: 800
