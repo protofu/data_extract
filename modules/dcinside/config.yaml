@@ -1,8 +1,18 @@
+# config file for DCInside Monitoring
+
 params:
+  # site value
   site:
     site: 디시인사이드
+    keyword: 계엄
+  # Kwargs
   kwargs:
     url: https://www.dcinside.com/
     browser: Chrome
     width: 1200
     height: 800
+
+target:
+  folder: C:\Users\argos\Desktop\data_extract\datas\extract
+  log_folder: C:\Users\argos\Desktop\data_extract\datas\log
+  search_time: 1

@@ -1,0 +1,11 @@
+# temp yaml file
+
+params:
+  # person value
+  person:
+    name: 김아무개
+    age: 25
+
+target:
+  folder: C:\Users\argos\Desktop\data_extract\datas\extract
+  log_folder: C:\Users\argos\Desktop\data_extract\datas\log
