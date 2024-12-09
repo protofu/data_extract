@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 class DcinsideKeywordMonitoring(PySelenium):
 
     def __init__(self, config_f):
+        start_time = time.time()
         if not os.path.exists(config_f):
             raise IOError(f'Cannot read config file "{config_f}"')
         with open(config_f, encoding='utf-8') as ifp:
@@ -35,33 +36,34 @@ class DcinsideKeywordMonitoring(PySelenium):
         self.target_time = current_time - timedelta(hours=self.config['target']['search_time'])
         self.article_count = 0
         self.is_done = False
+        elapsed_time = time.time() - start_time
+        print(f"[init] 완료 - 경과 시간: {elapsed_time:.2f} 초")
 
     # =================================기타 함수======================================
     # 검색 관련
     def search(self):
-        # 검색창 클릭
-        e = self.get_by_xpath('.//input[@id="preSWord"]', cond='element_to_be_clickable', timeout=1)
+        start_time = time.time()
+        # 검색 어 입력
+        e = self.get_by_xpath('.//*[@id="preSWord"]')
+        self.send_keys(e, self.config['params']['site']['search'])
+        # 검색 단추
+        e = self.get_by_xpath('.//*[@id="searchSubmit"]',
+                              cond='element_to_be_clickable')
         self.safe_click(e)
-        self.implicitly_wait(after_wait=1)
 
-        # 검색어 입력
-        e = self.get_by_xpath('.//input[@id="preSWord"]', timeout=1)
-        self.send_keys(e, self.keyword)
-        self.implicitly_wait(after_wait=1)
-
-        # 검색
-        e = self.get_by_xpath('.//*[@id="searchSubmit"]', timeout=1)
+        # 게시물
+        e = self.get_by_xpath('.//*[@id="top"]/div/nav/ul/li[5]', cond='element_to_be_clickable')
         self.safe_click(e)
-        self.implicitly_wait(after_wait=1)
 
-        # 게시물 클릭
-        e = self.get_by_xpath('.//*[@id="top"]/div/nav/ul/li[5]/a', timeout=1)
-        self.safe_click(e)
-        self.implicitly_wait(after_wait=1)
-        #
+        # print('최신순')
         # # 최신순 클릭 (기본이 최신순이지만 한번 더 클릭)
-        # e = self.get_by_xpath('.//*[@id="container"]/div/section[2]/div[1]/div/div/div/button[1]', timeout=1)
+        # e = self.get_by_xpath('.//button[contains(text(), "최신순")]', timeout=1)  # 텍스트가 "최신순"인 버튼을 찾기
+        # print('최신순 element 찾기 완료')
         # self.safe_click(e)
+        # self.implicitly_wait(after_wait=0.5)
+        # print('search 완료')
+        elapsed_time = time.time() - start_time
+        print(f"[search] 완료 - 경과 시간: {elapsed_time:.2f} 초")
 
     def get_article_count(self):
         # 페이지의 HTML 소스 가져오기
@@ -69,7 +71,6 @@ class DcinsideKeywordMonitoring(PySelenium):
         # BeautifulSoup을 사용하여 HTML 파싱
         page_source = BeautifulSoup(html_source, 'html.parser')
         article_times = page_source.find('ul', class_='sch_result_list').find_all('span', class_='date_time')
-
         for a_t in article_times:
             # 각 기사 시간 문자열을 datetime 객체로 변환
             article_time_str = a_t.get_text().strip()
@@ -95,9 +96,9 @@ class DcinsideKeywordMonitoring(PySelenium):
         try:
             if self.current_page == 10:
                 if self.page_count < 11:
-                    e = self.get_by_xpath('.//*[@id="dgn_btn_paging"]/a[10]')
+                    e = self.get_by_xpath('.//ul[@id="dgn_btn_paging"]/a[10]')
                 else:
-                    e = self.get_by_xpath('.//*[@id="dgn_btn_paging"]/a[12]')
+                    e = self.get_by_xpath('.//ul[@id="dgn_btn_paging"]/a[12]')
                 self.safe_click(e)
                 self.page_count += 1
                 self.current_page = self.page_count % 10
@@ -105,9 +106,9 @@ class DcinsideKeywordMonitoring(PySelenium):
                 self.page_count += 1
                 self.current_page += 1
                 if self.page_count <= 10:
-                    e = self.get_by_xpath(f'.//*[@id="dgn_btn_paging"]/a[{self.current_page - 1}]')
+                    e = self.get_by_xpath(f'.//ul[@id="dgn_btn_paging"]/a[{self.current_page - 1}]')
                 else:
-                    e = self.get_by_xpath(f'.//*[@id="dgn_btn_paging"]/a[{self.current_page + 1}]')
+                    e = self.get_by_xpath(f'.//ul[@id="dgn_btn_paging"]/a[{self.current_page + 1}]')
                 self.safe_click(e)
             self.implicitly_wait(after_wait=1)
             print(self.page_count)
@@ -121,9 +122,13 @@ class DcinsideKeywordMonitoring(PySelenium):
     def start(self):
         start_time = time.time()  # 시작 시간 기록
         try:
+            print("search 입장")
             self.search()
+            print("search 퇴장")
             while not self.is_done:
+                print("while 입장")
                 self.get_article_count()
+                print("nextPage 입장")
                 self.next_page()
             print(f"Article Count: {self.article_count}")
         except Exception as e:

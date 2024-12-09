@@ -7,7 +7,7 @@ params:
     keyword: 계엄
   # Kwargs
   kwargs:
-    url: https://www.dcinside.com/
+    url: https://search.dcinside.com/post
     browser: Chrome
     width: 1200
     height: 800

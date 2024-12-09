@@ -184,3 +184,165 @@ IndexError: list index out of range
 IndexError: list index out of range
 
 
+2024-12-06 16:29:57,918-DCInside.log-INFO-__init__.py:485-[15604] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 16:29:59,038-DCInside.log-INFO-__init__.py:499-[15604] closed
+2024-12-06 16:31:59,265-DCInside.log-INFO-__init__.py:485-[8012] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 16:32:00,630-DCInside.log-ERROR-__init__.py:475-[3080] open Error: list index out of range
+
+2024-12-06 16:32:00,631-DCInside.log-ERROR-__init__.py:476-[3080] Traceback (most recent call last):
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 468, in __init__
+    self.browser_version = self._get_browser_version()
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 142, in _get_browser_version
+    bv = lines[-1].split()[0]
+IndexError: list index out of range
+
+
+2024-12-06 16:32:00,706-DCInside.log-INFO-__init__.py:499-[8012] closed
+2024-12-06 16:32:16,233-DCInside.log-INFO-__init__.py:485-[4428] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 16:36:15,641-DCInside.log-INFO-__init__.py:485-[16948] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 16:59:10,108-DCInside.log-INFO-__init__.py:485-[3760] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 16:59:31,202-DCInside.log-ERROR-__init__.py:504-[3760] close Error: Message: disconnected: not connected to DevTools
+  (failed to check if window was closed: disconnected: not connected to DevTools)
+  (Session info: chrome=131.0.6778.109)
+
+
+2024-12-06 16:59:31,202-DCInside.log-ERROR-__init__.py:505-[3760] Traceback (most recent call last):
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 498, in close
+    self.driver.close()
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 688, in close
+    self.execute(Command.CLOSE)
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 321, in execute
+    self.error_handler.check_response(response)
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\selenium\webdriver\remote\errorhandler.py", line 242, in check_response
+    raise exception_class(message, screen, stacktrace)
+selenium.common.exceptions.WebDriverException: Message: disconnected: not connected to DevTools
+  (failed to check if window was closed: disconnected: not connected to DevTools)
+  (Session info: chrome=131.0.6778.109)
+
+
+
+2024-12-06 17:00:46,601-DCInside.log-INFO-__init__.py:485-[12536] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:01:49,122-DCInside.log-INFO-__init__.py:485-[5048] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:03:34,411-DCInside.log-INFO-__init__.py:485-[10600] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:04:07,637-DCInside.log-INFO-__init__.py:485-[14756] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:04:41,547-DCInside.log-INFO-__init__.py:485-[16056] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:05:43,977-DCInside.log-ERROR-__init__.py:475-[10608] open Error: list index out of range
+
+2024-12-06 17:05:43,977-DCInside.log-ERROR-__init__.py:476-[10608] Traceback (most recent call last):
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 468, in __init__
+    self.browser_version = self._get_browser_version()
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 142, in _get_browser_version
+    bv = lines[-1].split()[0]
+IndexError: list index out of range
+
+
+2024-12-06 17:05:52,297-DCInside.log-INFO-__init__.py:485-[116] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:07:34,643-DCInside.log-INFO-__init__.py:485-[1196] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:08:09,327-DCInside.log-INFO-__init__.py:499-[1196] closed
+2024-12-06 17:08:30,621-DCInside.log-INFO-__init__.py:485-[14144] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:09:54,640-DCInside.log-ERROR-__init__.py:504-[14144] close Error: Message: disconnected: not connected to DevTools
+  (failed to check if window was closed: disconnected: not connected to DevTools)
+  (Session info: chrome=131.0.6778.109)
+
+
+2024-12-06 17:09:54,640-DCInside.log-ERROR-__init__.py:505-[14144] Traceback (most recent call last):
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 498, in close
+    self.driver.close()
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 688, in close
+    self.execute(Command.CLOSE)
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 321, in execute
+    self.error_handler.check_response(response)
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\selenium\webdriver\remote\errorhandler.py", line 242, in check_response
+    raise exception_class(message, screen, stacktrace)
+selenium.common.exceptions.WebDriverException: Message: disconnected: not connected to DevTools
+  (failed to check if window was closed: disconnected: not connected to DevTools)
+  (Session info: chrome=131.0.6778.109)
+
+
+
+2024-12-06 17:09:59,943-DCInside.log-INFO-__init__.py:485-[5888] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:11:09,220-DCInside.log-INFO-__init__.py:485-[17152] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:12:19,261-DCInside.log-INFO-__init__.py:485-[4840] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:13:00,073-DCInside.log-INFO-__init__.py:485-[10808] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:13:37,851-DCInside.log-INFO-__init__.py:485-[17148] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:14:28,752-DCInside.log-INFO-__init__.py:499-[17148] closed
+2024-12-06 17:15:55,985-DCInside.log-INFO-__init__.py:485-[6884] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:16:52,812-DCInside.log-INFO-__init__.py:499-[6884] closed
+2024-12-06 17:18:48,285-DCInside.log-INFO-__init__.py:485-[5864] open: get <https://www.dcinside.com/> with <1200,800>
+2024-12-06 17:19:23,497-DCInside.log-INFO-__init__.py:499-[5864] closed
+2024-12-06 17:22:27,412-DCInside.log-INFO-__init__.py:485-[5176] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:22:39,096-DCInside.log-INFO-__init__.py:499-[5176] closed
+2024-12-06 17:23:51,381-DCInside.log-INFO-__init__.py:485-[9956] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:24:03,115-DCInside.log-INFO-__init__.py:499-[9956] closed
+2024-12-06 17:25:08,795-DCInside.log-ERROR-__init__.py:475-[11812] open Error: list index out of range
+
+2024-12-06 17:25:08,795-DCInside.log-ERROR-__init__.py:476-[11812] Traceback (most recent call last):
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 468, in __init__
+    self.browser_version = self._get_browser_version()
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 142, in _get_browser_version
+    bv = lines[-1].split()[0]
+IndexError: list index out of range
+
+
+2024-12-06 17:25:13,423-DCInside.log-INFO-__init__.py:485-[11088] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:25:25,115-DCInside.log-INFO-__init__.py:499-[11088] closed
+2024-12-06 17:26:51,736-DCInside.log-INFO-__init__.py:485-[12500] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:27:03,533-DCInside.log-INFO-__init__.py:499-[12500] closed
+2024-12-06 17:27:55,028-DCInside.log-INFO-__init__.py:485-[7192] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:29:08,952-DCInside.log-INFO-__init__.py:485-[13172] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:30:15,038-DCInside.log-ERROR-__init__.py:475-[8504] open Error: list index out of range
+
+2024-12-06 17:30:15,038-DCInside.log-ERROR-__init__.py:476-[8504] Traceback (most recent call last):
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 468, in __init__
+    self.browser_version = self._get_browser_version()
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 142, in _get_browser_version
+    bv = lines[-1].split()[0]
+IndexError: list index out of range
+
+
+2024-12-06 17:30:20,986-DCInside.log-INFO-__init__.py:485-[8936] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:30:57,228-DCInside.log-INFO-__init__.py:485-[15784] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:31:04,887-DCInside.log-INFO-__init__.py:485-[820] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:31:27,188-DCInside.log-ERROR-__init__.py:504-[820] close Error: Message: no such window: target window already closed
+from unknown error: web view not found
+  (Session info: chrome=131.0.6778.109)
+
+
+2024-12-06 17:31:27,188-DCInside.log-ERROR-__init__.py:505-[820] Traceback (most recent call last):
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 498, in close
+    self.driver.close()
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 688, in close
+    self.execute(Command.CLOSE)
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 321, in execute
+    self.error_handler.check_response(response)
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\selenium\webdriver\remote\errorhandler.py", line 242, in check_response
+    raise exception_class(message, screen, stacktrace)
+selenium.common.exceptions.NoSuchWindowException: Message: no such window: target window already closed
+from unknown error: web view not found
+  (Session info: chrome=131.0.6778.109)
+
+
+
+2024-12-06 17:32:56,430-DCInside.log-INFO-__init__.py:485-[13348] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:33:16,551-DCInside.log-INFO-__init__.py:499-[13348] closed
+2024-12-06 17:34:14,990-DCInside.log-INFO-__init__.py:485-[8300] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:34:52,036-DCInside.log-INFO-__init__.py:485-[10612] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:36:03,132-DCInside.log-INFO-__init__.py:485-[3352] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:36:42,620-DCInside.log-INFO-__init__.py:485-[11768] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:38:01,312-DCInside.log-INFO-__init__.py:485-[5040] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:38:12,973-DCInside.log-INFO-__init__.py:499-[5040] closed
+2024-12-06 17:40:59,543-DCInside.log-INFO-__init__.py:485-[15396] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:41:11,260-DCInside.log-INFO-__init__.py:499-[15396] closed
+2024-12-06 17:41:16,298-DCInside.log-ERROR-__init__.py:475-[8204] open Error: list index out of range
+
+2024-12-06 17:41:16,299-DCInside.log-ERROR-__init__.py:476-[8204] Traceback (most recent call last):
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 468, in __init__
+    self.browser_version = self._get_browser_version()
+  File "C:\Users\argos\Desktop\data_extract\modules\dcinside\venv\lib\site-packages\alabslib\selenium\__init__.py", line 142, in _get_browser_version
+    bv = lines[-1].split()[0]
+IndexError: list index out of range
+
+
+2024-12-06 17:44:06,053-DCInside.log-INFO-__init__.py:485-[11964] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:45:00,453-DCInside.log-INFO-__init__.py:485-[7944] open: get <https://search.dcinside.com/post> with <1200,800>
+2024-12-06 17:45:12,099-DCInside.log-INFO-__init__.py:499-[7944] closed
