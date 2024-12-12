@@ -1,6 +1,6 @@
 import os
 import yaml
-import datetime
+from datetime import datetime, timedelta
 import pymysql
 import numpy as np
 import logging
@@ -45,20 +45,20 @@ class CollectionVolumeMonitor():
 
         # 분석 관련 변수 설정
         self.site_name_stats = self.config['database']['site_name_stats']
-        self.standard_date = '2024-09-01'
+        self.standard_date = self.config['params']['date']['standard_date']
+        self.limit_day = self.config['params']['date']['limit']
+        self.data_call_end_date = self.standard_date - timedelta(days=self.limit_day)
+        print(self.standard_date)
+        print(self.data_call_end_date)
 
-        date_time = datetime.datetime.today()
+        date_time = datetime.today()
         self.today = date_time.date()
-        print(self.today)
         self.cond = self.config['params']['analysis']
         for days, value in self.cond.items():
-            rlt = date_time - datetime.timedelta(days=value)
+            rlt = date_time - timedelta(days=value)
             setattr(self, days, rlt)
-
-        one_day_ago = date_time - datetime.timedelta(days=1)
-        print(date_time.strftime("%H:%M:%S"))
-        self.end_date = (date_time - datetime.timedelta(days=420)).date()
-        print(self.end_date)
+        one_day_ago = date_time - timedelta(days=1)
+        self.end_date = (date_time - timedelta(days=420)).date()
 
     def __enter__(self):
         return self
@@ -86,8 +86,7 @@ class CollectionVolumeMonitor():
                 FROM 
                     merge
                 WHERE
-                    site_name_stats = %s AND
-                    collection_end_date < %s
+                    collection_end_date BETWEEN %s AND %s 
                 GROUP BY
                     site_number_and_name,
                     collection_end_date
@@ -95,14 +94,11 @@ class CollectionVolumeMonitor():
                     collection_end_date DESC;
             '''
             cursor.execute(excute_query, (
-                self.site_name_stats,
+                self.data_call_end_date,
                 self.standard_date,
             ))
 
             rows = cursor.fetchall()
-            for row in rows:
-                print(row)
-            # print('길이 => ', len(rows))
             cursor.close()
             conn.close()
             print("DB 연결 종료!")
@@ -119,61 +115,59 @@ class CollectionVolumeMonitor():
                 self.conn.close()
                 print("DB 연결 종료!")
 
-    # 추출된 데이터 변수 초기화
+    # 추출된 데이터 전처리
     def data_preprocessing(self, datas):
-        # 튜플 형태 -> 첫 요소 가져온 뒤 분해하여 변수 초기화
-        num_group_name = str(datas[0][0]).split('_')
-        print(num_group_name)
-        self.site_number = num_group_name[0]
-        self.site_group = num_group_name[1]
-        self.site_name = num_group_name[2]
-        self.day_collection_vol = datas[0][2]
-
+        prepro_datas = {}
+        for site, date, collect in datas:
+            prepro_datas.setdefault(site, []).append((date, collect))
+        return prepro_datas
     # 이동 평균 구하기
     def moving_average(self, datas):
-        # 날짜와 값 추출
-        dates = [row[1] for row in datas]
-        values = [row[2] for row in datas]
+        avg_std_mid = {}
+        for site, values in datas.items():
 
-        # numpy 배열로 변환
-        dates_np = np.array(dates)
-        values_np = np.array(values)
+            # 날짜와 값 추출
+            collect = [row[1] for row in values]
 
-        # 이동평균 계산
-        window_sizes = [1, 7, 14, 30, 60]
-        moving_avgs = {window_size: [] for window_size in window_sizes}
-
-        # 각 날짜를 기준으로 과거 N일 간의 평균을 계산
-        for i in range(len(values_np)):
+            # numpy 배열로 변환
+            collect_np = np.array(collect)
+            # 이동평균 계산
+            window_sizes = [1, 7, 14, 30, 60]
+            # 데이터의 갯수가 60개 미만이라면 None
             for window_size in window_sizes:
-                if i + window_size >= len(values_np):
-                    moving_avgs[window_size].append(None)
+                if len(collect_np) < window_size:
+                    avg_std_mid.setdefault(site, {}).setdefault(window_size, []).append(-1)
+                    break
                 else:
                     # 기간을 넘지 않게 slice 하여 평균 계산
-                    end_idx = max(0, i + window_size)
-                    avg = np.mean(values_np[i:end_idx])
-                    moving_avgs[window_size].append(int(np.round(avg)))
-
-        # 변화량 변수 초기화
-        self.amount_of_change(moving_avgs)
-
-        for m_a, val in moving_avgs.items():
-            # print(m_a, val)
-            print(f'{m_a}일')
-            # None을 제외한 값들만 추출
-            val_clean = [v for v in val if v is not None]
-            if m_a == 1:
-                print(val_clean)
-            # 중간값 계산
-            median_val = np.round(np.median(val_clean))
-            # 평균값 계산
-            avg_val = np.round(np.average(val_clean))
-            # 표준편차 계산
-            std_val = np.round(np.std(val_clean))
-
-            print('중간값 : ', median_val)
-            print('평균값 : ', avg_val)
-            print('표준편차 : ', std_val)
+                    end_idx = window_size + 1
+                    avg = np.mean(collect_np[0:end_idx])
+                    if not np.isnan(avg):
+                        avg_std_mid.setdefault(site, {}).setdefault(window_size, []).append(int(np.round(avg)))
+                    else:
+                        avg_std_mid.setdefault(site, {}).setdefault(window_size, []).append(-1)
+        # for i, v in avg_std_mid.items():
+        #     print(i, v)
+        # # 변화량 변수 초기화
+        # self.amount_of_change(moving_avgs)
+        #
+        # for m_a, val in moving_avgs.items():
+        #     # print(m_a, val)
+        #     print(f'{m_a}일')
+        #     # None을 제외한 값들만 추출
+        #     val_clean = [v for v in val if v is not None]
+        #     if m_a == 1:
+        #         print(val_clean)
+        #     # 중간값 계산
+        #     median_val = np.round(np.median(val_clean))
+        #     # 평균값 계산
+        #     avg_val = np.round(np.average(val_clean))
+        #     # 표준편차 계산
+        #     std_val = np.round(np.std(val_clean))
+        #
+        #     print('중간값 : ', median_val)
+        #     print('평균값 : ', avg_val)
+        #     print('표준편차 : ', std_val)
 
     # 변화량 계산
     def amount_of_change(self, moving_avgs):
@@ -199,7 +193,7 @@ class CollectionVolumeMonitor():
 
     # 표준편차 계산
     def avg_having_duration(self, datas):
-        days_date = datetime.datetime.strptime(self.standard_date, "%Y-%m-%d").date()
+        days_date = datetime.strptime(self.standard_date, "%Y-%m-%d").date()
         print(days_date)
         print(self.cond)
 
@@ -288,10 +282,10 @@ class CollectionVolumeMonitor():
     def start(self):
         db_datas = self.extract_data()
         if len(db_datas):
-            self.data_preprocessing(db_datas)
+            prepro_datas = self.data_preprocessing(db_datas)
             # 평균
-            self.moving_average(db_datas)
-            # self.avg_having_duration(db_datas)
+            self.moving_average(prepro_datas)
+            self.avg_having_duration(db_datas)
         self.slack_msg()
 
     def __exit__(self, exc_type, exc_value, traceback):
