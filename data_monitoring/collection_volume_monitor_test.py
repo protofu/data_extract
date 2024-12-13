@@ -19,22 +19,6 @@ class CollectionVolumeMonitor():
         self.slack_oauth_token = self.config["params"]['slack']["OAuth_token"]
         self.slack_mention_id = self.config["params"]['slack']["user_id"]
         self.slack_channel = self.config["params"]['slack']["channel"]
-        self.analysis_date = ''
-        self.site_number = ''
-        self.site_group = ''
-        self.site_name = ''
-        self.keyword = ''
-        self.collection_vol = ''
-        self.threshold = ''
-        self.day_collection_vol = ''
-        self.col_cng_7 = ''
-        self.col_cng_14 = ''
-        self.col_cng_30 = ''
-        self.col_cng_60 = ''
-        self.cng_per_7 = ''
-        self.cng_per_14 = ''
-        self.cng_per_30 = ''
-        self.cng_per_60 = ''
 
 
         # DB 관련 변수 설정
@@ -48,8 +32,11 @@ class CollectionVolumeMonitor():
         self.standard_date = self.config['params']['date']['standard_date']
         self.limit_day = self.config['params']['date']['limit']
         self.data_call_end_date = self.standard_date - timedelta(days=self.limit_day)
-        print(self.standard_date)
-        print(self.data_call_end_date)
+
+        # 알람 조건 관련 설정
+        self.threshold = self.config['params']['alert']['threshold']
+        self.min_collect = self.config['params']['alert']['min_collect']
+        self.min_7_avg = self.config['params']['alert']['min_7_avg']
 
         date_time = datetime.today()
         self.today = date_time.date()
@@ -118,163 +105,191 @@ class CollectionVolumeMonitor():
     # 추출된 데이터 전처리
     def data_preprocessing(self, datas):
         prepro_datas = {}
+        start_date = self.standard_date
+        end_date = self.end_date
         for site, date, collect in datas:
             prepro_datas.setdefault(site, []).append((date, collect))
+        for key in prepro_datas:
+            date_range = [start_date - timedelta(days=i) for i in range((start_date - end_date).days + 1)]
+            date_dict = {date: 0 for date in date_range}  # 기본값은 0
+            for date, value in prepro_datas[key]:
+                if date in date_dict:
+                    date_dict[date] = value
+            result = [(date, date_dict[date]) for date in date_range]
+            prepro_datas[key] = result
         return prepro_datas
-    # 이동 평균 구하기
-    def moving_average(self, datas):
+    # 평균, 중간, 표준편차 구하기
+    def calc_mid_avg_std(self, datas):
         avg_std_mid = {}
         for site, values in datas.items():
-
             # 날짜와 값 추출
             collect = [row[1] for row in values]
 
             # numpy 배열로 변환
             collect_np = np.array(collect)
-            # 이동평균 계산
-            window_sizes = [1, 7, 14, 30, 60]
-            # 데이터의 갯수가 60개 미만이라면 None
+            # 이동평균 범위 변수값
+            window_sizes = [0, 1, 7, 14, 30, 60]
+            # 계산
             for window_size in window_sizes:
-                if len(collect_np) < window_size:
-                    avg_std_mid.setdefault(site, {}).setdefault(window_size, []).append(-1)
-                    break
+                # 0일은 당일 수집량 담기
+                if window_size == 0:
+                    avg_std_mid.setdefault(site, {}).setdefault(window_size, collect_np[0])
+                # 1일은 전날 수집량을 담기
+                elif window_size == 1:
+                    avg_std_mid.setdefault(site, {}).setdefault(window_size, collect_np[1])
                 else:
                     # 기간을 넘지 않게 slice 하여 평균 계산
                     end_idx = window_size + 1
-                    avg = np.mean(collect_np[0:end_idx])
-                    if not np.isnan(avg):
-                        avg_std_mid.setdefault(site, {}).setdefault(window_size, []).append(int(np.round(avg)))
+                    a_val = np.average(collect_np[0:end_idx])
+                    m_val = np.mean(collect_np[0:end_idx])
+                    s_val = np.std(collect_np[0:end_idx])
+                    # 2개의 값이 다 NaN이 아니면 기록
+                    if not np.isnan(a_val) and not np.isnan(m_val) and not np.isnan(s_val):
+                        avg_std_mid.setdefault(site, {}).setdefault(window_size, []).append(int(np.round(a_val)))
+                        avg_std_mid.setdefault(site, {}).setdefault(window_size, []).append(int(np.round(m_val)))
+                        avg_std_mid.setdefault(site, {}).setdefault(window_size, []).append(int(np.round(s_val, 2)))
                     else:
-                        avg_std_mid.setdefault(site, {}).setdefault(window_size, []).append(-1)
-        # for i, v in avg_std_mid.items():
-        #     print(i, v)
-        # # 변화량 변수 초기화
-        # self.amount_of_change(moving_avgs)
-        #
-        # for m_a, val in moving_avgs.items():
-        #     # print(m_a, val)
-        #     print(f'{m_a}일')
-        #     # None을 제외한 값들만 추출
-        #     val_clean = [v for v in val if v is not None]
-        #     if m_a == 1:
-        #         print(val_clean)
-        #     # 중간값 계산
-        #     median_val = np.round(np.median(val_clean))
-        #     # 평균값 계산
-        #     avg_val = np.round(np.average(val_clean))
-        #     # 표준편차 계산
-        #     std_val = np.round(np.std(val_clean))
-        #
-        #     print('중간값 : ', median_val)
-        #     print('평균값 : ', avg_val)
-        #     print('표준편차 : ', std_val)
-
+                        avg_std_mid.setdefault(site, {}).setdefault(window_size, -1)
+        return avg_std_mid
+    # 알람 데이터 판별
+    def is_alert(self, datas):
+        alert_list = []
+        for site, val in datas.items():
+            alert = {
+                'site_name': site,
+                'today_collect': val[0],
+                'day_delta': None,
+                '7_day_delta': None,
+                '14_day_delta': None,
+                '30_day_delta': None,
+                '60_day_delta': None,
+                'day_per': None,
+                '7_day_per': None,
+                '14_day_per': None,
+                '30_day_per': None,
+                '60_day_per': None,
+                '7_avg': None,
+                'footer': None
+            }
+            com_alert = self.amount_of_change(val, alert)
+            rlt = self.cond_of_alert(com_alert)
+            if rlt is not None:
+                alert_list.append(rlt)
+        return alert_list
     # 변화량 계산
-    def amount_of_change(self, moving_avgs):
-        # 딕셔너리로 결과 저장
-        col_cng_dict = {}
-        cng_per_dict = {}
+    def amount_of_change(self, values, alert):
+        # 기준일 수집량
+        today_col = values[0]
+        # 전날 수집량과 비교
+        day_1 = today_col - values[1]
+        if values[1] != 0:
+            day_1_per = np.round((day_1*100) / values[1], 1)
+        else:
+            day_1_per = '-'
+        alert['day_delta'] = day_1
+        alert['day_per'] = day_1_per
+        rlt = {}
+        # 평균 기준 계산
+        for d in list(values.keys())[2:]:
+            compari = values[d][1]
+            if compari == 0:
+                rlt.setdefault(d, (0, 0))
+                continue
+            day_d = today_col - compari
+            day_p = np.round((day_d * 100) / compari, 1)
+            rlt.setdefault(d, (day_d, day_p))
 
-        # 각 이동 평균에 대해 반복
-        for days in [7, 14, 30, 60]:
-            col_cng_dict[days] = self.day_collection_vol - moving_avgs[days][0]
-            cng_per_dict[days] = round((col_cng_dict[days] / moving_avgs[days][0]) * 100, 1)
+        # 7일 대비
+        alert['7_day_delta'] = rlt[7][0]
+        alert['7_day_per'] = rlt[7][1]
+        alert['7_avg'] = values[7][1]
+        # 14일 대비
+        alert['14_day_delta'] = rlt[14][0]
+        alert['14_day_per'] = rlt[14][1]
+        # 30일 대비
+        alert['30_day_delta'] = rlt[30][0]
+        alert['30_day_per'] = rlt[30][1]
+        # 60일 대비
+        alert['60_day_delta'] = rlt[60][0]
+        alert['60_day_per'] = rlt[60][1]
 
-        # 결과를 객체 속성에 할당
-        self.col_cng_7 = col_cng_dict[7]
-        self.col_cng_14 = col_cng_dict[14]
-        self.col_cng_30 = col_cng_dict[30]
-        self.col_cng_60 = col_cng_dict[60]
+        return alert
+    # 알람 조건
+    def cond_of_alert(self, alert):
+        if alert['7_avg'] == 0:
+            percent = 0
+        else:
+            percent = np.round((alert['today_collect'] - alert['7_avg'])*100 / alert['7_avg'], 1)
+        if abs(percent) >= self.threshold and abs(alert['7_avg']) >= self.min_7_avg:
+            alert['footer'] = f"7일 이동평균 기준 *변화량* 이 *{alert['7_day_delta']}* 건, *변화율* 이 *{percent} %* 입니다."
+            return alert
 
-        self.cng_per_7 = cng_per_dict[7]
-        self.cng_per_14 = cng_per_dict[14]
-        self.cng_per_30 = cng_per_dict[30]
-        self.cng_per_60 = cng_per_dict[60]
+    # Slack 메시지 포맷을 만들기 위한 함수
+    def create_slack_message(self, alert_list):
+        header = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{self.standard_date} 사이트 수집량 변화 감지*"
+                }
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*사이트명*    *전일 대비*    *7일 대비*    *14일 대비*    *30일 대비*    *60일 대비*"
+                }
+            },
+        ]
+        blocks = []
+        footer = [
+            {
+                "type": "divider"
+            },
+            # {
+            #     "type": "section",
+            #     "text": {
+            #         "type": "mrkdwn",
+            #         "text": f"*네이버 배달세상*\n*전일 대비*: {site_data['day_delta']} ({site_data['day_per']}%) / 임계치 초과\n*7일 평균 대비*: {site_data['7_day_delta']} ({site_data['7_day_per']}%) / 임계치 초과"
+            #     }
+            # }
+        ]
+        for site_data in alert_list:
+            block = {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{site_data['site_name']}*    {site_data['day_delta']}({site_data['day_per']}%)    {site_data['7_day_delta']}({site_data['7_day_per']}%)    {site_data['14_day_delta']}({site_data['14_day_per']}%)    {site_data['30_day_delta']}({site_data['30_day_per']}%)    {site_data['60_day_delta']}({site_data['60_day_per']}%)"
+                }
+            }
+            fot = {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{site_data['site_name']}* 의 {site_data['footer']}"
 
-    # 표준편차 계산
-    def avg_having_duration(self, datas):
-        days_date = datetime.strptime(self.standard_date, "%Y-%m-%d").date()
-        print(days_date)
-        print(self.cond)
+                }
+            }
+            blocks.append(block)
+            footer.append(fot)
+        return header + blocks + footer
 
-        for days, value in self.cond.items():
-            while self.end_date < days_date - datetime.timedelta(days=value):
-                vs = days_date - datetime.timedelta(days=value)
-        # for days in self.cond:
-        #     count = 0
-        #     print(f'{getattr(self, days).date()}  --  {days_date}')
-        #     for data in datas:
-        #         if getattr(self, days).date() > data[1] >= days_date:
-        #             count += 1
-        #     print(days, ' = ', count)
-
-    def slack_msg(self):
+    def slack_msg(self, slack_msg):
         # OAuth 토큰 설정
         slack_token = self.slack_oauth_token
         client = WebClient(token=slack_token)
 
         # 멘션할 사용자 ID
-        mention_user_id = self.slack_mention_id
-
-        # slack_msg = f'''
-        # *분석 기준일*: {self.today}
-        # *사이트 넘버*: {self.site_number}
-        # *사이트 그룹*: {self.site_group}
-        # *사이트 명*: {self.site_name_stats}
-        # *검색 키워드*: 전체
-        # *임계치*: + 12%
-        # *분석 기준일 수집량*: {self.day_collection_vol}
-        #
-        # 2020년 O월 O일 OOO 사이트 수집량 변화 감지
-        #
-        # *사이트명*             *전일 대비*       *7일 대비*      *14일 대비*     *30일 대비*
-        # =======================================================================
-        # {self.site_name}    {self.col_cng_7}({self.cng_per_7}%)   {self.col_cng_14}({self.cng_per_14}%)   {self.col_cng_30}({self.cng_per_30}%)   {self.col_cng_60}({self.cng_per_60}%)
-        #
-        # *네이버 배달세상*
-        # *전일 대비*: +100 (+10%) / 임계치 초과
-        # *7일 평균 대비*: +20 (+OO%) / 임계치 초과
-        # '''
+        # mention_user_id = self.slack_mention_id
 
         try:
             response = client.chat_postMessage(
                 channel=self.slack_channel,  # 채널ID는 채널 세부정보 열기, 하단에서 확인가능
-                blocks=[
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": "*2020년 O월 O일 OOO 사이트 수집량 변화 감지*"
-                        }
-                    },
-                    {
-                        "type": "divider"
-                    },
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": "*사이트명*    *전일 대비*    *7일 대비*    *14일 대비*    *30일 대비*"
-                        }
-                    },
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"{self.site_name}    {self.col_cng_7}({self.cng_per_7}%)    {self.col_cng_14}({self.cng_per_14}%)    {self.col_cng_30}({self.cng_per_30}%)    {self.col_cng_60}({self.cng_per_60}%)"
-                        }
-                    },
-                    {
-                        "type": "divider"
-                    },
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*네이버 배달세상*\n*전일 대비*: +100 (+10%) / 임계치 초과\n*7일 평균 대비*: +20 (+OO%) / 임계치 초과"
-                        }
-                    }
-                ]
+                blocks=slack_msg
             )
         except SlackApiError as e:
             assert e.response["error"]
@@ -283,10 +298,11 @@ class CollectionVolumeMonitor():
         db_datas = self.extract_data()
         if len(db_datas):
             prepro_datas = self.data_preprocessing(db_datas)
-            # 평균
-            self.moving_average(prepro_datas)
-            self.avg_having_duration(db_datas)
-        self.slack_msg()
+            # 중간, 평균, 표준편차 데이터 추출
+            mas_datas = self.calc_mid_avg_std(prepro_datas)
+            alert_list = self.is_alert(mas_datas)
+            slack_msg = self.create_slack_message(alert_list)
+            self.slack_msg(slack_msg)
 
     def __exit__(self, exc_type, exc_value, traceback):
         # 필요한 정리 작업 (예: DB 연결 종료)
