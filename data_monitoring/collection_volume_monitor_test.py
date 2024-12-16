@@ -2,7 +2,12 @@ import os
 import yaml
 from datetime import datetime, timedelta
 import pymysql
+import pandas as pd
 import numpy as np
+import re
+import openpyxl
+from openpyxl.styles import NamedStyle, Font, PatternFill, Alignment
+from openpyxl.utils.dataframe import dataframe_to_rows
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -32,6 +37,7 @@ class CollectionVolumeMonitor():
         self.standard_date = self.config['params']['date']['standard_date']
         self.limit_day = self.config['params']['date']['limit']
         self.data_call_end_date = self.standard_date - timedelta(days=self.limit_day)
+        self.window_sizes = self.config['params']['date']['window_sizes']
 
         # 알람 조건 관련 설정
         self.threshold = self.config['params']['alert']['threshold']
@@ -49,6 +55,13 @@ class CollectionVolumeMonitor():
 
     def __enter__(self):
         return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # 필요한 정리 작업 (예: DB 연결 종료)
+        if hasattr(self, 'conn'):
+            self.conn.close()
+        if hasattr(self, 'cursor'):
+            self.cursor.close()
 
     # MySQL로 부터 데이터 추출,
     def extract_data(self):
@@ -118,6 +131,7 @@ class CollectionVolumeMonitor():
             result = [(date, date_dict[date]) for date in date_range]
             prepro_datas[key] = result
         return prepro_datas
+
     # 평균, 중간, 표준편차 구하기
     def calc_mid_avg_std(self, datas):
         avg_std_mid = {}
@@ -128,7 +142,7 @@ class CollectionVolumeMonitor():
             # numpy 배열로 변환
             collect_np = np.array(collect)
             # 이동평균 범위 변수값
-            window_sizes = [0, 1, 7, 14, 30, 60]
+            window_sizes = self.window_sizes
             # 계산
             for window_size in window_sizes:
                 # 0일은 당일 수집량 담기
@@ -151,6 +165,7 @@ class CollectionVolumeMonitor():
                     else:
                         avg_std_mid.setdefault(site, {}).setdefault(window_size, -1)
         return avg_std_mid
+
     # 알람 데이터 판별
     def is_alert(self, datas):
         alert_list = []
@@ -158,17 +173,6 @@ class CollectionVolumeMonitor():
             alert = {
                 'site_name': site,
                 'today_collect': val[0],
-                'day_delta': None,
-                '7_day_delta': None,
-                '14_day_delta': None,
-                '30_day_delta': None,
-                '60_day_delta': None,
-                'day_per': None,
-                '7_day_per': None,
-                '14_day_per': None,
-                '30_day_per': None,
-                '60_day_per': None,
-                '7_avg': None,
                 'footer': None
             }
             com_alert = self.amount_of_change(val, alert)
@@ -176,51 +180,42 @@ class CollectionVolumeMonitor():
             if rlt is not None:
                 alert_list.append(rlt)
         return alert_list
+
     # 변화량 계산
     def amount_of_change(self, values, alert):
         # 기준일 수집량
         today_col = values[0]
-        # 전날 수집량과 비교
+        rlt = {}
+
+        # 1일 대비 변화량 계산
         day_1 = today_col - values[1]
-        if values[1] != 0:
-            day_1_per = np.round((day_1*100) / values[1], 1)
-        else:
-            day_1_per = '-'
+        day_1_per = '-' if values[1] == 0 else np.round((day_1 * 100) / values[1], 1)
         alert['day_delta'] = day_1
         alert['day_per'] = day_1_per
-        rlt = {}
+
         # 평균 기준 계산
         for d in list(values.keys())[2:]:
             compari = values[d][1]
+            change = today_col - compari
             if compari == 0:
-                rlt.setdefault(d, (0, 0))
-                continue
-            day_d = today_col - compari
-            day_p = np.round((day_d * 100) / compari, 1)
-            rlt.setdefault(d, (day_d, day_p))
-
-        # 7일 대비
-        alert['7_day_delta'] = rlt[7][0]
-        alert['7_day_per'] = rlt[7][1]
-        alert['7_avg'] = values[7][1]
-        # 14일 대비
-        alert['14_day_delta'] = rlt[14][0]
-        alert['14_day_per'] = rlt[14][1]
-        # 30일 대비
-        alert['30_day_delta'] = rlt[30][0]
-        alert['30_day_per'] = rlt[30][1]
-        # 60일 대비
-        alert['60_day_delta'] = rlt[60][0]
-        alert['60_day_per'] = rlt[60][1]
-
+                alert[f'{d}_day_delta'] = 0
+                alert[f'{d}_day_per'] = 0
+                alert[f'{d}_avg'] = 0
+            else:
+                percent = np.round((change * 100) / compari, 1)
+                rlt.setdefault(d, (change, percent))
+                alert[f'{d}_day_delta'] = change
+                alert[f'{d}_day_per'] = percent
+                alert[f'{d}_avg'] = compari
         return alert
+
     # 알람 조건
     def cond_of_alert(self, alert):
         if alert['7_avg'] == 0:
             percent = 0
         else:
             percent = np.round((alert['today_collect'] - alert['7_avg'])*100 / alert['7_avg'], 1)
-        if abs(percent) >= self.threshold and abs(alert['7_avg']) >= self.min_7_avg:
+        if abs(percent) >= self.threshold and abs(alert['7_avg']) > self.min_7_avg:
             alert['footer'] = f"7일 이동평균 기준 *변화량* 이 *{alert['7_day_delta']}* 건, *변화율* 이 *{percent} %* 입니다."
             return alert
 
@@ -250,13 +245,6 @@ class CollectionVolumeMonitor():
             {
                 "type": "divider"
             },
-            # {
-            #     "type": "section",
-            #     "text": {
-            #         "type": "mrkdwn",
-            #         "text": f"*네이버 배달세상*\n*전일 대비*: {site_data['day_delta']} ({site_data['day_per']}%) / 임계치 초과\n*7일 평균 대비*: {site_data['7_day_delta']} ({site_data['7_day_per']}%) / 임계치 초과"
-            #     }
-            # }
         ]
         for site_data in alert_list:
             block = {
@@ -278,6 +266,51 @@ class CollectionVolumeMonitor():
             footer.append(fot)
         return header + blocks + footer
 
+    def create_excel_style_slack_message(self, alert_list):
+        header = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{self.standard_date} 사이트 수집량 변화 감지*"
+                }
+            },
+            {
+                "type": "divider"
+            },
+        ]
+        blocks = []
+        footer = [
+            {
+                "type": "divider"
+            },
+        ]
+
+        for site_data in alert_list:
+            block = {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{site_data['site_name']}* \n"
+                            f" 전일 대비:\t{site_data['day_delta']}({site_data['day_per']}%) \n"
+                            f" 7일 대비:\t{site_data['7_day_delta']}({site_data['7_day_per']}%) \n"
+                            f" 14일 대비:\t{site_data['14_day_delta']}({site_data['14_day_per']}%) \n"
+                            f" 30일 대비:\t{site_data['30_day_delta']}({site_data['30_day_per']}%) \n"
+                            f" 60일 대비:\t{site_data['60_day_delta']}({site_data['60_day_per']}%)"
+                },
+            }
+            fot = {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{site_data['site_name']}* 의 {site_data['footer']}"
+                }
+            }
+            blocks.append(block)
+            footer.append(fot)
+
+        return header + blocks + footer
+
     def slack_msg(self, slack_msg):
         # OAuth 토큰 설정
         slack_token = self.slack_oauth_token
@@ -294,22 +327,110 @@ class CollectionVolumeMonitor():
         except SlackApiError as e:
             assert e.response["error"]
 
+    # 엑셀 저장 함수
+    def excel_saver(self, datas):
+        after_datas = {}
+        for key, val in datas.items():
+            after_datas.setdefault(key, {}).setdefault('당일', val[0])
+            after_datas[key]['전일'] = val[1]
+            # after_datas[key]['1일 대비 변화량'] = self.avg_calc(val[0], val[1])
+            after_datas[key]['7일'] = val[7][1]
+            after_datas[key]['14일'] = val[14][1]
+            # after_datas[key]['14일 대비 변화량'] = self.avg_calc(val[0], val[14][1])
+            after_datas[key]['30일'] = val[30][1]
+            # after_datas[key]['30일 대비 변화량'] = self.avg_calc(val[0], val[30][1])
+            after_datas[key]['60일'] = val[60][1]
+            # after_datas[key]['60일 대비 변화량'] = self.avg_calc(val[0], val[60][1])
+            after_datas[key]['7일 대비 변화량'] = self.avg_calc(val[0], val[7][1])
+
+        df = pd.DataFrame(after_datas).T
+
+        # 엑셀 저장
+        with pd.ExcelWriter('sample.xlsx', engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='수집 데이터')
+
+            # openpyxl로 엑셀 파일 접근
+            workbook = writer.book
+            worksheet = writer.sheets['수집 데이터']
+
+            # 스타일 정의
+            number_style = NamedStyle(name="number_style", number_format='#,##0')  # 숫자 형식 (천 단위 구분)
+            date_style = NamedStyle(name="date_style", number_format='YYYY-MM-DD')  # 날짜 형식
+            change_style = NamedStyle(name="change_style", number_format='#,##0.0%')  # 변화량 퍼센트 형식
+            bold_font = Font(bold=True)  # Bold 글꼴 스타일
+            align_center = Alignment(horizontal='center', vertical='center')  # 가운데 정렬
+            align_right = Alignment(horizontal='right')
+            align_left = Alignment(horizontal='left')
+
+            # 음수 값에 파란색 배경 색상 적용
+            blue_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
+            blue_font = Font(color="0000FF")
+            red_font = Font(color="FF0000")
+
+            # 헤더 스타일 적용 (볼드 처리, 중앙 정렬)
+            for cell in worksheet[1]:
+                cell.font = bold_font
+                cell.alignment = align_center
+
+            # 스타일 적용: 각 열에 맞는 스타일 적용
+            for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row):
+                for cell in row:
+                    # 날짜 열 스타일 적용
+                    if cell.column == 1:  # 첫 번째 열 (날짜 열)
+                        cell.style = date_style
+                        cell.font = bold_font
+                        cell.alignment = align_left
+                    # 변화량 열 스타일 적용
+                    elif '변화량' in worksheet.cell(row=1, column=cell.column).value:  # 변화량 열
+                        cell.style = change_style
+                        cell.alignment = align_right
+                        number = int(re.sub(r"\(.*\)", "", cell.value).strip())
+                        # print(number, type(number))
+                        if number < 0:
+                            cell.font = blue_font
+                        elif number > 0:
+                            cell.font = red_font
+
+                    else:
+                        cell.style = number_style
+                        cell.alignment = align_right
+
+
+
+            # 1행의 헤더 열 폭을 설정
+            for col in worksheet.iter_cols(min_row=1, max_row=1, min_col=1, max_col=worksheet.max_column):
+                for cell in col:
+                    # 각 열의 최대 길이를 계산
+                    max_length = 0
+                    column = cell.column_letter
+                    for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row):
+                        for c in row:
+                            if c.column == cell.column:  # 같은 열의 셀들에 대해 최대 길이 계산
+                                try:
+                                    if len(str(c.value)) > max_length:
+                                        max_length = len(str(c.value))
+                                except:
+                                    pass
+                    adjusted_width = (max_length + 2)  # 여유 공간을 2만큼 더 추가하여 너비 설정
+                    worksheet.column_dimensions[column].width = adjusted_width
+
+    def avg_calc(self, today, next):
+        amount_of_change = today - next
+        if next == 0:
+            return f"{amount_of_change}({amount_of_change * 100}%)"
+        return f"{amount_of_change}({np.round(amount_of_change * 100 / next, 1)}%)"
+
     def start(self):
         db_datas = self.extract_data()
         if len(db_datas):
             prepro_datas = self.data_preprocessing(db_datas)
             # 중간, 평균, 표준편차 데이터 추출
             mas_datas = self.calc_mid_avg_std(prepro_datas)
+            self.excel_saver(mas_datas)
             alert_list = self.is_alert(mas_datas)
-            slack_msg = self.create_slack_message(alert_list)
+            # slack_msg = self.create_slack_message(alert_list)
+            slack_msg = self.create_excel_style_slack_message(alert_list)
             self.slack_msg(slack_msg)
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        # 필요한 정리 작업 (예: DB 연결 종료)
-        if hasattr(self, 'conn'):
-            self.conn.close()
-        if hasattr(self, 'cursor'):
-            self.cursor.close()
 
 def start_monitoring(**kwargs):
     with CollectionVolumeMonitor(kwargs['config_f']) as cvm:
