@@ -7,16 +7,52 @@ import pymysql
 import pandas as pd
 import numpy as np
 import re
-import openpyxl
 from openpyxl.styles import NamedStyle, Font, PatternFill, Alignment
-from openpyxl.utils.dataframe import dataframe_to_rows
 import logging
 # logging.basicConfig(level=logging.DEBUG)
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-class CollectionVolumeMonitor():
+
+class CollectionVolumeMonitor:
+
+    @staticmethod
+    def amount_of_change(values, alert):
+        """변화량 계산"""
+        # 기준일 수집량
+        today_col = values[0]
+        rlt = {}
+
+        # 1일 대비 변화량 계산
+        day_1 = today_col - values[1]
+        day_1_per = '-' if values[1] == 0 else np.round((day_1 * 100) / values[1], 1)
+        alert['day_delta'] = day_1
+        alert['day_per'] = day_1_per
+
+        # 평균 기준 계산
+        for d in list(values.keys())[2:]:
+            compari = values[d][1]
+            change = today_col - compari
+            if compari == 0:
+                alert[f'{d}_day_delta'] = 0
+                alert[f'{d}_day_per'] = 0
+                alert[f'{d}_avg'] = 0
+            else:
+                percent = np.round((change * 100) / compari, 1)
+                rlt.setdefault(d, (change, percent))
+                alert[f'{d}_day_delta'] = change
+                alert[f'{d}_day_per'] = percent
+                alert[f'{d}_avg'] = compari
+        return alert
+
+    @staticmethod
+    def avg_calc(today, next_day):
+        amount_of_change = today - next_day
+        if next_day == 0:
+            return f"{amount_of_change}({amount_of_change * 100}%)"
+        return f"{amount_of_change}({np.round(amount_of_change * 100 / next_day, 1)}%)"
+
     def __init__(self, config_f):
         if not os.path.exists(config_f):
             raise IOError(f'Cannot read config file "{config_f}"')
@@ -24,40 +60,36 @@ class CollectionVolumeMonitor():
             self.config = yaml.load(ifp, yaml.SafeLoader)
 
         date_time = datetime.today()
-        self.today = date_time.date()
+        today = date_time.date()
 
         # 슬랙 변수 관련 설정
-        self.slack_oauth_token = self.config["params"]['slack']["OAuth_token"]
-        self.slack_mention_id = self.config["params"]['slack']["user_id"]
-        self.slack_channel = self.config["params"]['slack']["channel"]
+        slack_params = self.config.get('params', {}).get('slack', {})
+        self.slack_oauth_token = slack_params.get('OAuth_token', '')
+        self.slack_mention_ids = slack_params.get('user_id', [])
+        self.slack_channel = slack_params.get('channel', '')
 
         # DB 관련 변수 설정
-        self.db_host = self.config['database']['host']
-        self.db_user = self.config['database']['user']
-        self.db_password = self.config['database']['password']
-        self.db_database = self.config['database']['database']
+        db_params = self.config.get('database', {})
+        self.db_host = db_params.get('host', '')
+        self.db_user = db_params.get('user', '')
+        self.db_password = db_params.get('password', '')
+        self.db_database = db_params.get('database', 'vocdailystats')
 
         # 분석 관련 변수 설정
-        self.site_name_stats = self.config['database']['site_name_stats']
-        self.standard_date = self.config['params']['date']['standard_date'] if self.config['params']['date']['standard_date'] else self.today
-        self.limit_day = self.config['params']['date']['limit']
+        date_params = self.config.get('params',  {}).get('date', {})
+        self.standard_date = date_params.get('standard_date', today)
+        self.limit_day = date_params.get('limit', 60)   # 값이 없으면 기본 60 기준
         self.data_call_end_date = self.standard_date - timedelta(days=self.limit_day)
-        self.window_sizes = self.config['params']['date']['window_sizes']
+        self.window_sizes = date_params.get('window_sizes', [0, 1, 3, 7, 14, 30, 60])
 
         # 알람 조건 관련 설정
-        self.threshold = self.config['params']['alert']['threshold']
-        self.min_collect = self.config['params']['alert']['min_collect']
-        self.min_7_avg = self.config['params']['alert']['min_7_avg']
-        self.critical = self.config['params']['alert']['critical']
-        self.warning = self.config['params']['alert']['warning']
-        self.caution = self.config['params']['alert']['caution']
-
-        self.cond = self.config['params']['analysis']
-        for days, value in self.cond.items():
-            rlt = date_time - timedelta(days=value)
-            setattr(self, days, rlt)
-        one_day_ago = date_time - timedelta(days=1)
-        # self.end_date = (date_time - timedelta(days=60)).date()
+        alert_params = self.config.get('params', {}).get('alert', {})
+        self.threshold = alert_params.get('threshold', 10)
+        self.min_collect = alert_params.get('min_collect', 20)
+        self.min_7_avg = alert_params.get('min_7_avg', 100)
+        self.critical = alert_params.get('critical', {})
+        self.warning = alert_params.get('warning', {})
+        self.caution = alert_params.get('caution', {})
 
     def __enter__(self):
         return self
@@ -69,8 +101,8 @@ class CollectionVolumeMonitor():
         if hasattr(self, 'cursor'):
             self.cursor.close()
 
-    # MySQL로 부터 데이터 추출,
     def extract_data(self):
+        """MySQL로 부터 데이터 추출"""
         try:
             # MySQL 연결
             conn = pymysql.connect(
@@ -121,27 +153,27 @@ class CollectionVolumeMonitor():
                 self.conn.close()
                 print("DB 연결 종료!")
 
-    # 추출된 데이터 전처리
-    def data_preprocessing(self, datas):
-        prepro_datas = {}
+    def data_preprocessing(self, data):
+        """추출된 데이터 전처리"""
+        prepro_data = {}
         start_date = self.standard_date
         end_date = self.data_call_end_date
-        for site, date, collect in datas:
-            prepro_datas.setdefault(site, []).append((date, collect))
-        for key in prepro_datas:
+        for site, date, collect in data:
+            prepro_data.setdefault(site, []).append((date, collect))
+        for key in prepro_data:
             date_range = [start_date - timedelta(days=i) for i in range((start_date - end_date).days + 1)]
             date_dict = {date: 0 for date in date_range}  # 기본값은 0
-            for date, value in prepro_datas[key]:
+            for date, value in prepro_data[key]:
                 if date in date_dict:
                     date_dict[date] = value
             result = [(date, date_dict[date]) for date in date_range]
-            prepro_datas[key] = result
-        return prepro_datas
+            prepro_data[key] = result
+        return prepro_data
 
-    # 평균, 중간, 표준편차 구하기
-    def calc_mid_avg_std(self, datas):
+    def calc_mid_avg_std(self, data):
+        """평균, 중간, 표준편차 구하기"""
         mid_avg_std = {}
-        for site, values in datas.items():
+        for site, values in data.items():
             # 날짜와 값 추출
             collect = [row[1] for row in values]
 
@@ -177,14 +209,14 @@ class CollectionVolumeMonitor():
 
         return mid_avg_std
 
-    # 알람 데이터 판별
-    def is_alert(self, datas):
+    def is_alert(self, data):
+        """알람 데이터 판별"""
         alert_list = {
             'critical': [],
             'warning': [],
             'caution': [],
         }
-        for site, val in datas.items():
+        for site, val in data.items():
             alert = {
                 'site_name': site,
                 'today_collect': val[0],
@@ -198,43 +230,15 @@ class CollectionVolumeMonitor():
                 alert_list[rlt['stage']].append(rlt)
         return alert_list
 
-    # 변화량 계산
-    def amount_of_change(self, values, alert):
-        # 기준일 수집량
-        today_col = values[0]
-        rlt = {}
-
-        # 1일 대비 변화량 계산
-        day_1 = today_col - values[1]
-        day_1_per = '-' if values[1] == 0 else np.round((day_1 * 100) / values[1], 1)
-        alert['day_delta'] = day_1
-        alert['day_per'] = day_1_per
-
-        # 평균 기준 계산
-        for d in list(values.keys())[2:]:
-            compari = values[d][1]
-            change = today_col - compari
-            if compari == 0:
-                alert[f'{d}_day_delta'] = 0
-                alert[f'{d}_day_per'] = 0
-                alert[f'{d}_avg'] = 0
-            else:
-                percent = np.round((change * 100) / compari, 1)
-                rlt.setdefault(d, (change, percent))
-                alert[f'{d}_day_delta'] = change
-                alert[f'{d}_day_per'] = percent
-                alert[f'{d}_avg'] = compari
-        return alert
-
-    # 알람 조건
     def cond_of_alert(self, alert):
+        """알람 조건"""
         # 7일 평균이 설정값 미만이라면 None 반환(제외).
         if alert['7_avg'] < self.min_7_avg:
             return None
 
-        day_1 = alert['day_per']
-        day_3 = alert['3_day_per']
-        day_7 = alert['7_day_per']
+        day_1 = alert['day_per'] if alert['day_per'] != '-' else 0
+        day_3 = alert['3_day_per'] if alert['3_day_per'] != '-' else 0
+        day_7 = alert['7_day_per'] if alert['7_day_per'] != '-' else 0
         alert['footer'] = ''
 
         # 단계별 조건과 메시지를 처리하는 함수
@@ -266,72 +270,16 @@ class CollectionVolumeMonitor():
 
         return alert
 
-    # Slack 메시지 포맷을 만들기 위한 함수
-    # def create_excel_style_slack_message(self, alert_list):
-    #     header = [
-    #         {
-    #             "type": "section",
-    #             "text": {
-    #                 "type": "mrkdwn",
-    #                 "text": f"*{self.standard_date} 사이트 수집량 변화 감지*"
-    #             }
-    #         },
-    #         {
-    #             "type": "divider"
-    #         },
-    #     ]
-    #     blocks = []
-    #     footer = [
-    #         {
-    #             "type": "divider"
-    #         },
-    #     ]
-    #
-    #     for stage, values in alert_list.items():
-    #         if len(values) == 0:
-    #             continue
-    #         block = {
-    #             "type": "section",
-    #             "text": {
-    #                 "type": "mrkdwn",
-    #                 "text": f"## *[{stage}]*  \t 총 *{len(values)}* 개"
-    #             }
-    #         }
-    #         blocks.append(block)
-    #         for val in values:
-    #             block = {
-    #                 "type": "section",
-    #                 "text": {
-    #                     "type": "mrkdwn",
-    #                     "text": f"*{val['site_name']}* \n {val['footer']}"
-    #
-    #                 },
-    #             }
-    #             blocks.append(block)
-    #
-    #
-    #     return header + blocks + footer
-
-    def slack_msg(self, slack_msg):
+    def csv_slack_msg(self, alert_list):
+        """slack 메세지 전송"""
         # OAuth 토큰 설정
         slack_token = self.slack_oauth_token
         client = WebClient(token=slack_token)
 
         # 멘션할 사용자 ID
-        # mention_user_id = self.slack_mention_id
-
-        try:
-            response = client.chat_postMessage(
-                channel=self.slack_channel,  # 채널ID는 채널 세부정보 열기, 하단에서 확인가능
-                blocks=slack_msg
-            )
-        except SlackApiError as e:
-            assert e.response["error"]
-
-    def csv_slack_msg(self, alert_list):
-        # OAuth 토큰 설정
-        slack_token = self.slack_oauth_token
-        client = WebClient(token=slack_token)
+        mention_user_ids = ''
+        for user in self.slack_mention_ids:
+            mention_user_ids += f'<@{user}> '
 
         # Generate CSV data
         csv_buffer = io.BytesIO()  # BytesIO 사용
@@ -367,105 +315,38 @@ class CollectionVolumeMonitor():
         # '년 월 일' 형식으로 날짜 포매팅
         formatted_date = self.standard_date.strftime("%Y년 %m월 %d일")
 
-        # CSV to Slack
-        response = client.files_upload_v2(
-            channel=self.slack_channel,
-            file=csv_buffer,
-            filename="alert_data.csv",
-            title="사이트 변화 감지 데이터",
-            initial_comment=f"{formatted_date} 사이트별 모니터링"
-        )
+        # CSV to Slack_msg
+        try:
+            response = client.files_upload_v2(
+                channel=self.slack_channel,
+                file=csv_buffer,
+                filename="alert_data.csv",
+                title="사이트 변화 감지 데이터",
+                initial_comment=f"{mention_user_ids}\n{formatted_date} 사이트별 모니터링"
+            )
+        except SlackApiError as e:
+            assert e.response["error"]
 
-    # def excel_slack_msg(self, alert_list):
-    #     # OAuth 토큰 설정
-    #     slack_token = self.slack_oauth_token
-    #     client = WebClient(token=slack_token)
-    #
-    #     # Excel 파일 생성
-    #     wb = openpyxl.Workbook()
-    #     ws = wb.active
-    #     ws.title = "사이트 변화 감지 데이터"
-    #
-    #     # 헤더 추가
-    #     header = ["단계", "사이트명", "전일 대비", "3일 대비", "7일 대비"]
-    #     ws.append(header)
-    #
-    #     for stage, values in alert_list.items():
-    #         for val in values:
-    #             site_name = val['site_name']
-    #             day_1 = f"{val.get('day_per', '--')}" if val.get('day_per', '') else "--"
-    #             day_3 = f"{val.get('3_day_per', '--')}" if val.get('3_day_per', '') else "--"
-    #             day_7 = f"{val.get('7_day_per', '--')}" if val.get('7_day_per', '') else "--"
-    #
-    #             # 퍼센트 기호 추가 및 우측 정렬
-    #             day_1 = f"{day_1}%".rjust(10)
-    #             day_3 = f"{day_3}%".rjust(10)
-    #             day_7 = f"{day_7}%".rjust(10)
-    #
-    #             # stage 값 처리
-    #             if val.get('stage', '') == 'critical':
-    #                 stage = '[심각]'
-    #                 stage_font = Font(color="FF0000")  # 빨간색
-    #             elif val.get('stage', '') == 'warning':
-    #                 stage = '[경계]'
-    #                 stage_font = Font(color="FFA500")  # 주황색
-    #             elif val.get('stage', '') == 'caution':
-    #                 stage = '[주의]'
-    #                 stage_font = Font(color="FFFF00")  # 노란색
-    #             else:
-    #                 stage_font = Font(color="000000")  # 기본 색상
-    #
-    #             # 행 추가
-    #             row = [stage, site_name, day_1, day_3, day_7]
-    #             ws.append(row)
-    #
-    #             # 텍스트 색상 적용
-    #             last_row = ws.max_row
-    #             for col_num, cell in enumerate(ws[last_row], 1):  # 마지막 행
-    #                 if col_num == 1:  # "단계" 컬럼에 색상 적용
-    #                     cell.font = stage_font
-    #
-    #     # 엑셀 파일을 메모리 버퍼에 저장
-    #     excel_buffer = io.BytesIO()
-    #     wb.save(excel_buffer)
-    #     excel_buffer.seek(0)
-    #
-    #     # Slack에 파일 업로드
-    #     try:
-    #         response = client.files_upload_v2(
-    #             channels=self.slack_channel,
-    #             file=excel_buffer,
-    #             filename="alert_data.xlsx",
-    #             title="사이트 변화 감지 데이터"
-    #         )
-    #         print(f"Upload success: {response['file']['id']}")
-    #     except Exception as e:
-    #         print(f"Error uploading file: {e}")
+    def excel_saver(self, data):
+        """엑셀 저장 함수"""
+        after_data = {}
+        for key, val in data.items():
+            after_data.setdefault(key, {}).setdefault('당일', val[0])
+            after_data[key]['전일'] = val[1]
+            after_data[key]['7일'] = val[7][1]
+            after_data[key]['14일'] = val[14][1]
+            after_data[key]['30일'] = val[30][1]
+            after_data[key]['60일'] = val[60][1]
+            after_data[key]['7일 대비 변화량'] = self.avg_calc(val[0], val[7][1])
 
-    # 엑셀 저장 함수
-    def excel_saver(self, datas):
-        after_datas = {}
-        for key, val in datas.items():
-            after_datas.setdefault(key, {}).setdefault('당일', val[0])
-            after_datas[key]['전일'] = val[1]
-            # after_datas[key]['1일 대비 변화량'] = self.avg_calc(val[0], val[1])
-            after_datas[key]['7일'] = val[7][1]
-            after_datas[key]['14일'] = val[14][1]
-            # after_datas[key]['14일 대비 변화량'] = self.avg_calc(val[0], val[14][1])
-            after_datas[key]['30일'] = val[30][1]
-            # after_datas[key]['30일 대비 변화량'] = self.avg_calc(val[0], val[30][1])
-            after_datas[key]['60일'] = val[60][1]
-            # after_datas[key]['60일 대비 변화량'] = self.avg_calc(val[0], val[60][1])
-            after_datas[key]['7일 대비 변화량'] = self.avg_calc(val[0], val[7][1])
-
-        df = pd.DataFrame(after_datas).T
+        df = pd.DataFrame(after_data).T
 
         # 엑셀 저장
-        with pd.ExcelWriter('sample.xlsx', engine='openpyxl') as writer:
+        with pd.ExcelWriter(f'{self.standard_date} 기준 모니터링 결과.xlsx', engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='수집 데이터')
 
             # openpyxl로 엑셀 파일 접근
-            workbook = writer.book
+            # workbook = writer.book
             worksheet = writer.sheets['수집 데이터']
 
             # 스타일 정의
@@ -510,8 +391,6 @@ class CollectionVolumeMonitor():
                         cell.style = number_style
                         cell.alignment = align_right
 
-
-
             # 1행의 헤더 열 폭을 설정
             for col in worksheet.iter_cols(min_row=1, max_row=1, min_col=1, max_col=worksheet.max_column):
                 for cell in col:
@@ -529,12 +408,6 @@ class CollectionVolumeMonitor():
                     adjusted_width = (max_length + 2)  # 여유 공간을 2만큼 더 추가하여 너비 설정
                     worksheet.column_dimensions[column].width = adjusted_width
 
-    def avg_calc(self, today, next):
-        amount_of_change = today - next
-        if next == 0:
-            return f"{amount_of_change}({amount_of_change * 100}%)"
-        return f"{amount_of_change}({np.round(amount_of_change * 100 / next, 1)}%)"
-
     def start(self):
         db_datas = self.extract_data()
         if len(db_datas):
@@ -544,14 +417,13 @@ class CollectionVolumeMonitor():
             self.excel_saver(mas_datas)
             alert_list = self.is_alert(mas_datas)
             self.csv_slack_msg(alert_list)
-            # self.excel_slack_msg(alert_list)
-            # slack_msg = self.create_excel_style_slack_message(alert_list)
-            # self.slack_msg(slack_msg)
+
 
 def start_monitoring(**kwargs):
     with CollectionVolumeMonitor(kwargs['config_f']) as cvm:
         cvm.start()
         return 0
+
 
 if __name__ == '__main__':
     _config_f = 'collection_volume_monitor.yaml'
